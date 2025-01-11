@@ -35,7 +35,7 @@
 
 /* USER CODE BEGIN PV */
 /* Private variables ---------------------------------------------------------*/
-
+bool usb_IS_Connected = false;
 /* USER CODE END PV */
 
 PCD_HandleTypeDef hpcd_USB_FS;
@@ -207,6 +207,7 @@ void HAL_PCD_SuspendCallback(PCD_HandleTypeDef *hpcd)
     /* Set SLEEPDEEP bit and SleepOnExit of Cortex System Control Register. */
     SCB->SCR |= (uint32_t)((uint32_t)(SCB_SCR_SLEEPDEEP_Msk | SCB_SCR_SLEEPONEXIT_Msk));
   }
+  usb_IS_Connected = false;
   /* USER CODE END 2 */
 }
 
@@ -223,7 +224,7 @@ void HAL_PCD_ResumeCallback(PCD_HandleTypeDef *hpcd)
 #endif /* USE_HAL_PCD_REGISTER_CALLBACKS */
 {
   /* USER CODE BEGIN 3 */
-
+	usb_IS_Connected = true;
   /* USER CODE END 3 */
   USBD_LL_Resume((USBD_HandleTypeDef*)hpcd->pData);
 }

@@ -53,10 +53,16 @@ float uSP = 0.0; // set point for output voltage
 float iSP = 0.0; // set point for output current
 float outU = 0.0;
 float outI = 0.0;
-bool on_off = false; // disable/enable power at output 0/1
-bool on_off_slave_state = false; // state of slave controlled device
+uint8_t on_off = false; // disable/enable power at output 0/1
+uint8_t on_off_slave_state = false; // state of slave controlled device
 uint32_t tempCRC;
 bool i2cError = false; // help flag to indicate I2C CRC Error
+//PVs Used into USB communication
+extern uint8_t UserRxBufferFS[]; //Buffer for Received USB Data
+extern uint8_t UserTxBufferFS[]; //Buffer for USB Transmitted Data
+extern bool usb_ON_Receiving; //USB gets actual data, don't update i2c
+extern bool usb_IS_Connected; //USB is connected to HOST
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -65,7 +71,7 @@ static void MX_GPIO_Init(void);
 static void MX_CRC_Init(void);
 static void MX_I2C1_Init(void);
 /* USER CODE BEGIN PFP */
-
+uint8_t CDC_Transmit_FS(uint8_t* Buf, uint16_t Len);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -106,22 +112,38 @@ int main(void)
   MX_I2C1_Init();
   MX_USB_DEVICE_Init();
   /* USER CODE BEGIN 2 */
-
+  while(!usb_IS_Connected)
+  {
+	  HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, GPIO_PIN_RESET);
+	  HAL_Delay(50);
+	  HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, GPIO_PIN_SET);
+	  HAL_Delay(950);
+  }
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
   {
+	 while(!usb_IS_Connected)
+		 HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, GPIO_PIN_SET);
 	 HAL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin);
-	 masterTxBuf[0]=(uint8_t)on_off;
+	 //Data transfer from USB to memory
+	 while(usb_ON_Receiving){;} // Wait if USB RX Buffer to be updated
+	 memcpy(&on_off,&UserRxBufferFS[0],sizeof(on_off));
+	 memcpy(&uSP,&UserRxBufferFS[1],sizeof(uSP));
+	 memcpy(&iSP,&UserRxBufferFS[5],sizeof(iSP));
+	 //Data Transfer from memory to i2c
+	 masterTxBuf[0]= on_off;
 	 memcpy(&masterTxBuf[1], &uSP, sizeof(uSP));
 	 memcpy(&masterTxBuf[5], &iSP, sizeof(iSP));
 	 tempCRC = HAL_CRC_Calculate(&hcrc,(uint32_t *)masterTxBuf, (I2C_BUFF_LEN/4)-1);
 	 memcpy(&masterTxBuf[I2C_BUFF_LEN-4],&tempCRC,sizeof(tempCRC));
 	 HAL_I2C_Master_Transmit(&hi2c1, (I2C_SLAVE_ADDRESS << 1),
 				  	  	  	  	  	  	  (uint8_t*) &masterTxBuf, I2C_BUFF_LEN, 500);
-	 HAL_Delay(50);
+	 //Wait slave to complete i2c receiving
+	 HAL_Delay(5);
+	 //Data receiving from slave trough i2c
 	 HAL_I2C_Master_Receive(&hi2c1, (I2C_SLAVE_ADDRESS << 1),
 			 	 	 	 	 	 	 	  (uint8_t*) &masterRxBuf, I2C_BUFF_LEN, 500);
 	 memcpy(&on_off_slave_state, &masterRxBuf[0], sizeof(on_off_slave_state));
@@ -131,6 +153,15 @@ int main(void)
 	 if(tempCRC == HAL_CRC_Calculate(&hcrc,(uint32_t *)masterRxBuf, (I2C_BUFF_LEN/4)-1))
 		 	i2cError = false;
 	 else 	i2cError = true;
+	 // Data sent to PC via USB if valid packet received
+	 if(!i2cError)
+	 {
+		 UserTxBufferFS[0] = on_off_slave_state;
+		 memcpy(&UserTxBufferFS[1],&outU, sizeof(outU));
+		 memcpy(&UserTxBufferFS[5],&outI, sizeof(outI));
+		 CDC_Transmit_FS(UserTxBufferFS, 9);
+	 }
+
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -276,6 +307,7 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
+
 
 /* USER CODE END 4 */
 
